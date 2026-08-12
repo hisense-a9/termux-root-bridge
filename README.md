@@ -1,105 +1,74 @@
 # termux-root-bridge
 
-Ein persistentes Ubuntu (via [proot-distro](https://github.com/termux/proot-distro))
-in Termux auf dem Hisense A9 laufen lassen, per Widget starten/stoppen — und
-aus dieser Ubuntu-Session heraus **echte Android-Root-Befehle anfragen**,
-jeweils mit bewusster manueller Bestätigung.
+[English](README.md) · [Deutsch](README.de.md) · [Español](README.es.md)
 
-Gedacht für alles, was in einer Termux/proot-Umgebung entwickelt/ausgeführt
-wird (z. B. AI-Coding-Agenten wie Claude Code), aber gelegentlich echten
-Geräte-Root braucht (Systemeinstellungen, `/sys`-Knoten, etc.).
+Run a persistent Ubuntu environment (via [proot-distro](https://github.com/termux/proot-distro)) in Termux on the Hisense A9, start and stop it with a widget, and request **real Android root commands** from that Ubuntu session with deliberate manual confirmation for each request.
 
-## Warum nicht einfach `su` aus proot-distro heraus?
+It is intended for anything developed or run in a Termux/proot environment (for example, AI coding agents such as Claude Code) that occasionally needs real device root access (system settings, `/sys` nodes, and so on).
 
-Funktioniert grundsätzlich nicht. `proot` fängt Systemaufrufe über `ptrace`
-ab; Magisks `su` kommuniziert intern mit dem `magiskd`-Daemon über einen
-eigenen RPC/Socket-Mechanismus. Zwei ptrace-artige Schichten übereinander
-kollidieren (`write failed: Broken pipe` bei einem direkten Testaufruf).
-Das ist eine architektonische Grenze von proot, keine Konfigurationsfrage.
+## Why not simply use `su` from proot-distro?
 
-## Architektur
+It does not work reliably. `proot` intercepts system calls through `ptrace`, while Magisk's `su` communicates with the `magiskd` daemon through its own RPC/socket mechanism. Two ptrace-like layers collide (`write failed: Broken pipe` in a direct test call). This is an architectural limitation of proot, not a configuration problem.
+
+## Architecture
 
 ```
-Ubuntu-Session (proot-distro)          Außerhalb von proot (normales Termux)
-────────────────────────────           ──────────────────────────────────────
-androidsu "<befehl>"                   root-bridge-watch.sh (Hintergrund-Loop)
-  schreibt Anfrage nach                  entdeckt neue Anfrage
+Ubuntu session (proot-distro)          Outside proot (normal Termux)
+────────────────────────────           ───────────────────────────────
+androidsu "<command>"                  root-bridge-watch.sh (background loop)
+  writes a request to                    detects a new request
   ~/.rootbridge/req-<id>.txt              │
-  wartet auf Antwort                      ▼
+  waits for a response                    ▼
                                         tmux display-popup
                                           → root-bridge-confirm.sh <id>
-                                             zeigt Befehl an, read -t 10 "y"?
-                                             ja  → su -c "<befehl>" (echtes Root)
-                                             nein/Timeout → abgelehnt
-                                             schreibt Ergebnis nach
+                                             displays the command, read -t 10 "y"?
+                                             yes  → su -c "<command>" (real root)
+                                             no/timeout → rejected
+                                             writes the result to
                                              ~/.rootbridge/res-<id>.txt
-  liest Antwort, gibt Exitcode+Ausgabe
-  zurück
+  reads the response and returns
+  the exit code and output
 ```
 
-`su` wird ausschließlich außerhalb von proot aufgerufen — nie innerhalb.
-Der Client (`androidsu`, läuft in proot) tut nichts Privilegiertes, nur
-Datei-I/O; die gesamte Rechte-Eskalation passiert in einem Prozess, der nie
-unter proots ptrace steht.
+`su` is called exclusively outside proot—never inside it. The client (`androidsu`, running in proot) performs no privileged operation; it only does file I/O. All privilege escalation happens in a process that is never under proot's ptrace layer.
 
-**Wichtiger Grund für `tmux display-popup` statt eines zweiten tmux-Fensters:**
-Falls euer einziger Zugang ein Homescreen-Widget-Toggle ist (kein
-Fenster-Wechsel innerhalb von tmux möglich/praktikabel), erscheint die
-Bestätigung als Overlay **direkt über dem aktuell sichtbaren Fenster** — kein
-Wechseln nötig.
+**Why use `tmux display-popup` instead of a second tmux window?** If your only access is a homescreen widget toggle (with no convenient way to switch windows inside tmux), the confirmation appears as an overlay **directly over the currently visible window**—no window switch is required.
 
-## Sicherheitsmodell
+## Security model
 
-Keine neue Vertrauensgrenze: Alles, was in der Ubuntu-Session läuft, hat
-ohnehin volle Termux-App-Rechte. Neu ist nur die *zusätzliche*, pro Befehl
-manuell bestätigte Fähigkeit, echte Android-Root-Aktionen anzufragen — jede
-Anfrage zeigt den exakten Befehlstext, und nur eine bewusste `y`-Eingabe
-(nicht Enter/Leereingabe) löst die Ausführung aus. Timeout gilt als
-Ablehnung.
+There is no new trust boundary: everything running in the Ubuntu session already has full Termux app permissions. The new capability is the additional ability to request real Android root actions with manual confirmation for each command. Every request shows the exact command text, and only a deliberate `y` input (not Enter or an empty input) starts execution. A timeout is treated as a rejection.
 
 ## Installation
 
-Voraussetzungen: Termux, `proot-distro` mit installierter Ubuntu-Distro,
-`tmux` (≥ 3.2 für `display-popup`), Root (z. B. Magisk) mit Termux als
-zugelassene Superuser-App.
+Requirements: Termux, `proot-distro` with an Ubuntu distribution installed, `tmux` (≥ 3.2 for `display-popup`), and root access (for example Magisk) with Termux approved as a superuser app.
 
 ```sh
 mkdir -p ~/bin ~/.shortcuts
 cp scripts/ubuntu-toggle.sh scripts/androidsu scripts/root-bridge-watch.sh scripts/root-bridge-confirm.sh ~/bin/
 chmod 700 ~/bin/ubuntu-toggle.sh ~/bin/androidsu ~/bin/root-bridge-watch.sh ~/bin/root-bridge-confirm.sh
-cp ~/bin/ubuntu-toggle.sh "~/.shortcuts/Ubuntu Toggle"   # für Termux:Widget
+cp ~/bin/ubuntu-toggle.sh "~/.shortcuts/Ubuntu Toggle"   # for Termux:Widget
 ```
 
-In der proot-distro-Distro `androidsu` auf den PATH legen (Container-eigene
-`~/.bashrc`, nicht die von Termux):
+Add `androidsu` to the PATH inside the proot-distro distribution (the container's `~/.bashrc`, not Termux's):
 
 ```sh
 echo 'export PATH="/data/data/com.termux/files/home/bin:$PATH"' >> ~/.bashrc
 ```
 
-Termux:Widget installieren (z. B. von [GitHub](https://github.com/termux/termux-widget/releases)
-oder F-Droid — muss zur Signatur-Familie eurer Termux-Installation passen),
-Widget-Kachel "Ubuntu Toggle" auf den Homescreen legen.
+Install Termux:Widget (for example from [GitHub](https://github.com/termux/termux-widget/releases) or F-Droid—it must match the signature family of your Termux installation) and place the `Ubuntu Toggle` widget on the homescreen.
 
-**Hinweis:** Datei-Rechte/SELinux-Kontext müssen zur eigenen Termux-App-UID
-passen (`id -u` in Termux, SELinux-Kategorie via `ls -Z ~`) — die genauen
-Werte sind pro Installation unterschiedlich, hier nicht fest verdrahtet.
+**Note:** File permissions and SELinux context must match your Termux app UID (`id -u` in Termux, SELinux category via `ls -Z ~`). The exact values vary by installation and are not hard-coded here.
 
-## Verwendung
+## Usage
 
 ```sh
-# Auf dem Homescreen: Widget-Kachel "Ubuntu Toggle" antippen (startet/stoppt).
-# In der Ubuntu-Session:
+# On the homescreen: tap the Ubuntu Toggle widget (starts/stops Ubuntu).
+# In the Ubuntu session:
 androidsu id
-# → Popup erscheint, mit 'y' + Enter bestätigen (10s Zeitfenster)
+# → A popup appears; confirm with 'y' + Enter (10-second window)
 # → uid=0(root) gid=0(root) ...
 ```
 
-## Referenz / Inspiration
+## Reference / inspiration
 
-[hisense-a9/PatchingService](https://github.com/hisense-a9/PatchingService)
-zeigt, dass proot-übergreifende IPC zu einem Root-Prozess grundsätzlich
-funktioniert (dort: ein nativer Daemon auf einem abstrakten Unix-Socket für
-E-Ink-Steuerkommandos). Dieses Projekt nutzt aus Einfachheitsgründen
-Datei-Polling statt eines Sockets — für einen manuell bestätigten,
-gelegentlichen Anwendungsfall ist der Latenzunterschied irrelevant.
+[hisense-a9/PatchingService](https://github.com/hisense-a9/PatchingService) shows that IPC across proot to a root process is possible in principle (there, a native daemon uses an abstract Unix socket for E Ink control commands). This project uses file polling instead of a socket for simplicity—for an occasional, manually confirmed use case, the latency difference is irrelevant.
