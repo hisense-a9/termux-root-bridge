@@ -1,5 +1,9 @@
 # termux-root-bridge
 
+> **Umgezogen.** Das Projekt liegt jetzt im Subtree [`rootbridge/`](https://github.com/epaper-dev/termux/tree/main/rootbridge) von
+> [`epaper-dev/termux`](https://github.com/epaper-dev/termux), mit der vollständigen Historie. Dieses Repository ist archiviert und
+> wird nicht mehr gepflegt.
+
 **Claude Code auf Android (Termux + proot-distro) – jede echte Root-Aktion wird direkt in Claude Code bestätigt, und Logins funktionieren ohne Kopierärger.**
 
 [English](README.md) · [Español](README.es.md) · [Vergleich mit anderen Projekten](docs/COMPARISON.md) · [Login & MCP](docs/LOGIN.md) · [Sicherheit](SECURITY.md)
